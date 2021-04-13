@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/davecgh/go-spew/spew"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"io/ioutil"
@@ -19,6 +20,11 @@ type Todo struct {
 	ID   int
 }
 
+var (
+	db         = InitDB()
+	ErrReqBody = "Invalid request body, please include a text field with non-zero length"
+)
+
 func TodoWithoutID(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		HandleGET(w, r)
@@ -27,34 +33,37 @@ func TodoWithoutID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func HandleGET(w http.ResponseWriter, r *http.Request) {
+func HandleGET(w http.ResponseWriter, _ *http.Request) {
+	var allTodos []Todo
+	db.Find(&allTodos)
+	spew.Dump(allTodos)
+	encodedData, _ := json.Marshal(allTodos)
 	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(encodedData)
 }
 func HandlePOST(w http.ResponseWriter, r *http.Request) {
 	reqBody, _ := ioutil.ReadAll(r.Body)
-
 	var decodedReqBody map[string]interface{}
-	_ = json.Unmarshal(reqBody, &decodedReqBody)
-
+	err := json.Unmarshal(reqBody, &decodedReqBody)
 	// check if the decodedReqBody includes text field
-	if decodedReqBody["text"] == nil {
+	if decodedReqBody["text"] == nil || err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = fmt.Fprint(w, "Invalid request body, please include a text field with non-zero length")
+		_, _ = fmt.Fprint(w, ErrReqBody)
 		return
 	}
+	createdTodo := Todo{Text: decodedReqBody["text"].(string)}
+	db.Create(&createdTodo)
+	w.WriteHeader(http.StatusOK)
+	encodedResBody, _ := json.Marshal(createdTodo)
+	_, _ = w.Write(encodedResBody)
+}
 
-	// init db
+func InitDB() *gorm.DB {
+	// connect to db
 	dsn := "host=localhost user=kmab password=kmab dbname=todo_cli_test port=5432"
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatalf("Could not connect to db")
 	}
-
-	// store into db
-	createdTodo := Todo{Text: decodedReqBody["text"].(string)}
-	db.Create(&createdTodo)
-
-	w.WriteHeader(http.StatusOK)
-	encodedResBody, _ := json.Marshal(createdTodo)
-	_, _ = w.Write(encodedResBody)
+	return db
 }
