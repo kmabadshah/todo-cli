@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/davecgh/go-spew/spew"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"io/ioutil"
@@ -36,7 +35,6 @@ func TodoWithoutID(w http.ResponseWriter, r *http.Request) {
 func HandleGET(w http.ResponseWriter, _ *http.Request) {
 	var allTodos []Todo
 	db.Find(&allTodos)
-	spew.Dump(allTodos)
 	encodedData, _ := json.Marshal(allTodos)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(encodedData)

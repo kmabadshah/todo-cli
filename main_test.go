@@ -14,14 +14,12 @@ func TestCreateTodo(t *testing.T) {
 	defer TruncateTable()
 
 	t.Run("on valid req body", func(t *testing.T) {
-		reqBody := map[string]string{
+		reqBody := map[string]interface{}{
 			"text":      "Hello World",
 			"something": "else",
 		}
-		reqJSONBody, _ := json.Marshal(reqBody)
-		req := httptest.NewRequest("POST", "http://localhost:8080/todos", bytes.NewReader(reqJSONBody))
-		res := httptest.NewRecorder()
-		TodoWithoutID(res, req)
+		res, _ := CreateTodoReq(reqBody)
+
 		var resBody Todo
 		assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
 		resBodyText := resBody.Text
@@ -45,13 +43,10 @@ func TestCreateTodo(t *testing.T) {
 	})
 
 	t.Run("proper response message and status code on invalid req body", func(t *testing.T) {
-		reqBody := map[string]string{
+		reqBody := map[string]interface{}{
 			"invalid": "request-body",
 		}
-		reqJSONBody, _ := json.Marshal(reqBody)
-		req := httptest.NewRequest("POST", "http://localhost:8080/todos", bytes.NewReader(reqJSONBody))
-		res := httptest.NewRecorder()
-		TodoWithoutID(res, req)
+		res, _ := CreateTodoReq(reqBody)
 
 		got := res.Body.String()
 		want := ErrReqBody
@@ -65,17 +60,17 @@ func TestCreateTodo(t *testing.T) {
 func TestGETTodos(t *testing.T) {
 	TruncateTable()
 	defer TruncateTable()
-	CreateTodoReq()
-	CreateTodoReq()
+	CreateTodoReq(nil)
+	CreateTodoReq(nil)
 
+	// get request
 	req := httptest.NewRequest("GET", "http://localhost:8080/todos", nil)
 	res := httptest.NewRecorder()
 	TodoWithoutID(res, req)
 
 	t.Run("returns all todos and proper status code", func(t *testing.T) {
 		var resBody []Todo
-		err := json.Unmarshal(res.Body.Bytes(), &resBody)
-		assertRandomErr(t, err)
+		assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
 		assertStatusCode(t, res.Result().StatusCode, http.StatusOK)
 		if len(resBody) != 2 {
 			t.Errorf("didn't get same amount of todos that was created")
@@ -83,15 +78,19 @@ func TestGETTodos(t *testing.T) {
 	})
 }
 
-func CreateTodoReq() {
-	reqBody := map[string]string{
-		"text":      "GET TODOS TEST 1",
-		"something": "else",
+func CreateTodoReq(reqBody map[string]interface{}) (*httptest.ResponseRecorder, *http.Request) {
+	if reqBody == nil {
+		reqBody = map[string]interface{}{
+			"text":      "GET TODOS TEST",
+			"something": "else",
+		}
 	}
 	reqJSONBody, _ := json.Marshal(reqBody)
 	req := httptest.NewRequest("POST", "http://localhost:8080/todos", bytes.NewReader(reqJSONBody))
 	res := httptest.NewRecorder()
 	TodoWithoutID(res, req)
+
+	return res, req
 }
 
 func TestTruncate(t *testing.T) {
