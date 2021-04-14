@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/gorilla/mux"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -15,7 +16,12 @@ import (
 )
 
 func main() {
-	//http.ListenAndServe()
+	router := mux.NewRouter()
+	router.Path("/todos").HandlerFunc(TodoWithoutID)
+	router.Path("/todos/{id}").HandlerFunc(TodoWithID)
+
+	fmt.Println("Listening on port 8080")
+	log.Fatal(http.ListenAndServe(":8080", router))
 }
 
 type Todo struct {
@@ -24,6 +30,7 @@ type Todo struct {
 }
 
 var (
+	mode         = "test"
 	db           = InitDB()
 	ErrReqBody   = "Invalid request body, please include a text field with non-zero length"
 	ErrInvalidID = "Invalid id"
@@ -33,7 +40,7 @@ var (
 func TodoWithoutID(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
-		HandleGET(w, r)
+		HandleGETAll(w, r)
 	case "POST":
 		HandlePOST(w, r)
 	}
@@ -41,6 +48,8 @@ func TodoWithoutID(w http.ResponseWriter, r *http.Request) {
 
 func TodoWithID(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
+	case "GET":
+		HandleGETOne(w, r)
 	case "PUT":
 		HandlePUT(w, r)
 	case "DELETE":
@@ -48,13 +57,26 @@ func TodoWithID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func HandleGET(w http.ResponseWriter, _ *http.Request) {
+func HandleGETAll(w http.ResponseWriter, _ *http.Request) {
 	var allTodos []Todo
 	db.Find(&allTodos)
 	encodedData, _ := json.Marshal(allTodos)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(encodedData)
 }
+
+func HandleGETOne(w http.ResponseWriter, r *http.Request) {
+	todo := GetTodoByID(r)
+	if todo.ID == 0 {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(ErrInvalidID))
+		return
+	}
+	resBody, _ := json.Marshal(todo)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(resBody)
+}
+
 func HandlePOST(w http.ResponseWriter, r *http.Request) {
 	reqBody, _ := ioutil.ReadAll(r.Body)
 	var decodedReqBody map[string]interface{}
@@ -123,17 +145,31 @@ func HandleDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetTodoByID(r *http.Request) Todo {
-	re := regexp.MustCompile(`/todos/(.*)/?`)
-	id := re.FindSubmatch([]byte(r.URL.Path))[1]
+	var id string
+
+	if mode == "prod" {
+		id = mux.Vars(r)["id"]
+	} else {
+		re := regexp.MustCompile(`/todos/(.*)/?`)
+		id = string(re.FindSubmatch([]byte(r.URL.Path))[1])
+	}
+
 	var todo Todo
-	db.First(&todo, "id=?", string(id))
+	db.First(&todo, "id=?", id)
 
 	return todo
 }
 
 func InitDB() *gorm.DB {
 	// connect to db
-	dsn := "host=localhost user=kmab password=kmab dbname=todo_cli_test port=5432"
+	var dbname string
+	if mode == "prod" {
+		dbname = "todo_cli"
+	} else {
+		dbname = "todo_cli_test"
+	}
+	dsn := fmt.Sprintf("host=localhost user=kmab password=kmab dbname=%s port=5432", dbname)
+
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
 		Logger: logger.New(
 			log.New(os.Stdout, "\r\n", log.LstdFlags),

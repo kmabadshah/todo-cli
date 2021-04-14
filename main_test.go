@@ -79,6 +79,47 @@ func TestGetTodos(t *testing.T) {
 	})
 }
 
+func TestGetTodo(t *testing.T) {
+	TruncateTable()
+	defer TruncateTable()
+	resBody := Todo{}
+
+	// POST a todo
+	reqBody := map[string]interface{}{
+		"text": "Hello World",
+	}
+	res, _ := CreateTodoReq(reqBody)
+	assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
+
+	t.Run("GET with valid id", func(t *testing.T) {
+		// GET the todo
+		req := httptest.NewRequest("GET", "http://localhost:8080/todos/"+strconv.Itoa(resBody.ID), nil)
+		res = httptest.NewRecorder()
+		TodoWithID(res, req)
+		assertStatusCode(t, res.Result().StatusCode, http.StatusOK)
+
+		// Check the result
+		resBody = Todo{}
+		assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
+
+		if resBody.Text != reqBody["text"] {
+			t.Errorf("Did not get the requested todo text")
+		}
+	})
+
+	t.Run("GET with invalid id", func(t *testing.T) {
+		// GET the todo
+		req := httptest.NewRequest("GET", "http://localhost:8080/todos/"+"-1", nil)
+		res = httptest.NewRecorder()
+		TodoWithID(res, req)
+		assertStatusCode(t, res.Result().StatusCode, http.StatusNotFound)
+
+		if res.Body.String() != ErrInvalidID {
+			t.Errorf("Expected error but got %#v", res.Body.String())
+		}
+	})
+}
+
 func TestUpdateTodo(t *testing.T) {
 	TruncateTable()
 	defer TruncateTable()
@@ -178,6 +219,68 @@ func TestDeleteTodo(t *testing.T) {
 			t.Errorf("Didn't get proper error message")
 		}
 	})
+}
+
+func TestIntegration(t *testing.T) {
+	TruncateTable()
+	defer TruncateTable()
+
+	// create 2 todos
+	reqBody1 := map[string]interface{}{
+		"text":  "integration create todo 1",
+		"hello": "world",
+	}
+
+	reqBody2 := map[string]interface{}{"text": "integration create todo 1"}
+	res1, _ := CreateTodoReq(reqBody1)
+	_, _ = CreateTodoReq(reqBody2)
+
+	t.Run("get all todos and check", func(t *testing.T) {
+		var todos []Todo
+		db.Find(&todos)
+
+		if len(todos) != 2 {
+			t.Fatalf("Created 2 todos but got %#v", len(todos))
+		}
+	})
+
+	// get todo one
+	var resBody Todo
+	assertRandomErr(t, json.Unmarshal(res1.Body.Bytes(), &resBody))
+	req := httptest.NewRequest("GET", "http://localhost:8080/todos/"+strconv.Itoa(resBody.ID), nil)
+	res := httptest.NewRecorder()
+
+	if resBody.ID == 0 {
+		t.Fatalf("Todo didn't get created")
+	}
+
+	// update todo one
+	updatedTodo := map[string]interface{}{
+		"text": "integration update todo 1",
+	}
+	encodedReqBody, _ := json.Marshal(updatedTodo)
+	req = httptest.NewRequest("PUT", "http://localhost:8080/todos/"+strconv.Itoa(resBody.ID), bytes.NewReader(encodedReqBody))
+	res = httptest.NewRecorder()
+	TodoWithID(res, req)
+
+	// decode and check
+	assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
+	if resBody.Text != updatedTodo["text"] {
+		t.Errorf("didn't update todo properly")
+	}
+
+	// delete todo one
+	url := "http://localhost:8080/todos/" + strconv.Itoa(resBody.ID)
+	req = httptest.NewRequest("DELETE", url, nil)
+	res = httptest.NewRecorder()
+	TodoWithID(res, req)
+
+	// check if deleted
+	var td Todo
+	db.Find(&td, "id=?", resBody.ID)
+	if td.ID != 0 {
+		t.Errorf("Expected todo to be deleted")
+	}
 }
 
 func CreateTodoReq(reqBody map[string]interface{}) (*httptest.ResponseRecorder, *http.Request) {
