@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 )
 
@@ -57,7 +58,7 @@ func TestCreateTodo(t *testing.T) {
 	})
 }
 
-func TestGETTodos(t *testing.T) {
+func TestGetTodos(t *testing.T) {
 	TruncateTable()
 	defer TruncateTable()
 	CreateTodoReq(nil)
@@ -78,6 +79,107 @@ func TestGETTodos(t *testing.T) {
 	})
 }
 
+func TestUpdateTodo(t *testing.T) {
+	TruncateTable()
+	defer TruncateTable()
+
+	res, _ := CreateTodoReq(nil)
+	var resBody Todo
+	assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
+	updatedTodo := map[string]interface{}{"text": "yo adnan"}
+	reqJSONBody, _ := json.Marshal(updatedTodo)
+
+	t.Run("valid id", func(t *testing.T) {
+		res = httptest.NewRecorder()
+		req := httptest.NewRequest("PUT", "http://localhost:8080/todos/"+strconv.Itoa(resBody.ID), bytes.NewReader(reqJSONBody))
+		TodoWithID(res, req)
+
+		t.Run("Proper res code and body with valid ID", func(t *testing.T) {
+			assertStatusCode(t, res.Result().StatusCode, http.StatusOK)
+			assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
+
+			t.Log("http://localhost:8080/todos/" + strconv.Itoa(resBody.ID))
+			if resBody.Text != updatedTodo["text"] {
+				t.Errorf("Did not get the updated text with response")
+			}
+		})
+
+		t.Run("Check if the todo got updated", func(t *testing.T) {
+			var todo Todo
+			db.First(&todo, "id=?", resBody.ID)
+
+			if todo.Text != updatedTodo["text"] {
+				t.Errorf("Todo did not get updated")
+			}
+		})
+	})
+
+	t.Run("invalid id", func(t *testing.T) {
+		res = httptest.NewRecorder()
+		req := httptest.NewRequest("PUT", "http://localhost:8080/todos/"+strconv.Itoa(10), bytes.NewReader(reqJSONBody))
+		TodoWithID(res, req)
+
+		assertStatusCode(t, res.Result().StatusCode, http.StatusNotFound)
+		got := res.Body.String()
+		want := ErrInvalidID
+
+		if got != want {
+			t.Errorf("Error message mismatch, wanted %#v, got %#v", want, got)
+		}
+	})
+
+}
+
+func TestDeleteTodo(t *testing.T) {
+	TruncateTable()
+	defer TruncateTable()
+
+	// create the todo
+	res, _ := CreateTodoReq(nil)
+	var resBody Todo
+	assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
+	todoID := strconv.Itoa(resBody.ID)
+
+	t.Run("valid id", func(t *testing.T) {
+		// delete the todo
+		req := httptest.NewRequest("DELETE", "http://localhost:8080/todos/"+todoID, nil)
+		res = httptest.NewRecorder()
+		TodoWithID(res, req)
+
+		t.Run("proper status code and body", func(t *testing.T) {
+			assertStatusCode(t, res.Result().StatusCode, http.StatusOK)
+			got := res.Body.String()
+			want := "Successfully deleted id " + todoID
+
+			if got != want {
+				t.Errorf("No proper deletion message; wanted %#v, got %#v", want, got)
+			}
+		})
+
+		t.Run("check db for todo deletion", func(t *testing.T) {
+			var todo Todo
+			db.First(todo, "id=?", resBody.ID)
+			if todo.ID != 0 {
+				t.Errorf("Didn't expect todo to exist in the db")
+			}
+		})
+	})
+
+	t.Run("invalid id", func(t *testing.T) {
+		req := httptest.NewRequest("DELETE", "http://localhost:8080/todos/"+strconv.Itoa(-1), nil)
+		res = httptest.NewRecorder()
+		TodoWithID(res, req)
+
+		assertStatusCode(t, res.Result().StatusCode, http.StatusNotFound)
+		got := res.Body.String()
+		want := ErrInvalidID
+
+		if got != want {
+			t.Errorf("Didn't get proper error message")
+		}
+	})
+}
+
 func CreateTodoReq(reqBody map[string]interface{}) (*httptest.ResponseRecorder, *http.Request) {
 	if reqBody == nil {
 		reqBody = map[string]interface{}{
@@ -93,11 +195,8 @@ func CreateTodoReq(reqBody map[string]interface{}) (*httptest.ResponseRecorder, 
 	return res, req
 }
 
-func TestTruncate(t *testing.T) {
-	TruncateTable()
-}
-
 func assertRandomErr(t *testing.T, err interface{}) {
+	t.Helper()
 	if err != nil {
 		t.Fatalf("Didn't expect an error but got \n%v", err)
 	}
@@ -109,6 +208,7 @@ func assertStatusCode(t *testing.T, got, want int) {
 	}
 }
 
+// Truncates the Todo table in test database
 func TruncateTable() {
 	db.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&Todo{})
 }
