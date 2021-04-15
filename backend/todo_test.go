@@ -298,20 +298,4 @@ func CreateTodoReq(reqBody map[string]interface{}) (*httptest.ResponseRecorder, 
 	return res, req
 }
 
-func assertRandomErr(t *testing.T, err interface{}) {
-	t.Helper()
-	if err != nil {
-		t.Fatalf("Didn't expect an error but got \n%v", err)
-	}
-}
-func assertStatusCode(t *testing.T, got, want int) {
-	t.Helper()
-	if got != want {
-		t.Errorf("wanted %#v status but got %#v", want, got)
-	}
-}
-
 // Truncates the Todo table in test database
-func TruncateTable() {
-	db.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&Todo{})
-}

@@ -1,42 +1,34 @@
 package frontend
 
 import (
-	"bytes"
 	"fmt"
 	"github.com/spf13/cobra"
-	"io/ioutil"
+	"log"
 	"net/http"
 )
 
-var data string
-var cmd = &cobra.Command{
-	Use:   "create",
-	Short: "create a todo",
-	Run: func(cmd *cobra.Command, args []string) {
-		// get the data
-		// POST the data to /todos
-		res, err := http.Post(
-			"http://localhost:8080/todos",
-			"application/json", bytes.NewBuffer([]byte(data)),
-		)
-		defer res.Body.Close()
-
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-
-		// output the result
-		if resBody, err := ioutil.ReadAll(res.Body); err != nil {
-			fmt.Println(err)
-			return
-		} else {
-			fmt.Println(string(resBody))
-		}
-	},
-}
-
 func init() {
-	cmd.Flags().StringVar(&data, "data", "something", "data for creating a todo")
+	var data string
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "create a todo",
+		Run: func(cmd *cobra.Command, args []string) {
+			// POST the data to /todos
+			method := http.MethodPost
+			url := "http://localhost:8080/todos"
+			err := MakeRequest(method, url, []byte(data))
+
+			if err != nil {
+				fmt.Println(err)
+			}
+		},
+	}
+
+	cmd.Flags().StringVar(&data, "data", "", `todo create --data '{"text": "hello world"}'`)
+	err := cmd.MarkFlagRequired("data")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	rootCmd.AddCommand(cmd)
 }

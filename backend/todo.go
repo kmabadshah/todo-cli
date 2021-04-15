@@ -4,28 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
 	"regexp"
 	"strconv"
-)
-
-type Todo struct {
-	Text string
-	ID   int
-}
-
-var (
-	mode         = "prod"
-	db           = InitDB()
-	ErrReqBody   = "Invalid request body, please include a text field with non-zero length"
-	ErrInvalidID = "Invalid id"
-	ErrInternal  = "Please try again later"
 )
 
 func TodoWithoutID(w http.ResponseWriter, r *http.Request) {
@@ -158,31 +141,4 @@ func StartServer() {
 
 	fmt.Println("Listening on port 8080")
 	log.Fatal(http.ListenAndServe(":8080", router))
-}
-
-func InitDB() *gorm.DB {
-	// connect to db
-	var dbname string
-	if mode == "prod" {
-		dbname = "todo_cli"
-	} else {
-		dbname = "todo_cli_test"
-	}
-	dsn := fmt.Sprintf("host=localhost user=kmab password=kmab dbname=%s port=5432", dbname)
-
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: logger.New(
-			log.New(os.Stdout, "\r\n", log.LstdFlags),
-			logger.Config{
-				LogLevel:                  logger.Silent, // Log level
-				IgnoreRecordNotFoundError: true,          // Ignore ErrRecordNotFound error for logger
-				Colorful:                  true,          // Disable color
-			},
-		),
-	})
-
-	if err != nil {
-		log.Fatalf("Could not connect to db")
-	}
-	return db
 }
