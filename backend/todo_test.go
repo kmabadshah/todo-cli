@@ -4,15 +4,31 @@ import (
 	"bytes"
 	"encoding/json"
 	"gorm.io/gorm"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"testing"
 )
 
+var uid int
+
+// initialize the testing environment for subsequent tests
+func TestStart(t *testing.T) {
+	TruncateTable(&User{})
+	// create the user
+	user := User{Uname: "adnan", Pass: "badshah"}
+	db.Create(&user)
+	uid = user.ID
+	// create the secret file
+	err := ioutil.WriteFile("/tmp/secret.txt", []byte(strconv.Itoa(user.ID)), 0644)
+	assertTestError(err)
+}
+
 func TestCreateTodo(t *testing.T) {
-	TruncateTable()
-	defer TruncateTable()
+	TruncateTable(&Todo{})
+	defer TruncateTable(&Todo{})
 
 	t.Run("on valid req body", func(t *testing.T) {
 		reqBody := map[string]interface{}{
@@ -50,18 +66,33 @@ func TestCreateTodo(t *testing.T) {
 		res, _ := CreateTodoReq(reqBody)
 
 		got := res.Body.String()
-		want := ErrReqBody
+		want := ErrTodoReqBody
 		assertStatusCode(t, res.Result().StatusCode, http.StatusBadRequest)
 		if got != want {
 			t.Error("didn't get proper response message on invalid req body")
 		}
 	})
+
+	testUserIdentity(t, func() *httptest.ResponseRecorder {
+		res, _ := CreateTodoReq(nil)
+		return res
+	})
 }
 
 func TestGetTodos(t *testing.T) {
-	TruncateTable()
-	defer TruncateTable()
+	TruncateTable(&Todo{})
+	defer TruncateTable(&Todo{})
 	CreateTodoReq(nil)
+	CreateTodoReq(nil)
+
+	// create an arbitrary user and save credentials
+	// testUserIdentity() will automatically clear everything
+	// at the end
+	user := User{Uname: "test", Pass: "test"}
+	db.Create(&user)
+	err := ioutil.WriteFile("/tmp/secret.txt", []byte(strconv.Itoa(user.ID)), 0644)
+	assertTestError(err)
+	// create todo for that user
 	CreateTodoReq(nil)
 
 	// get request
@@ -69,19 +100,35 @@ func TestGetTodos(t *testing.T) {
 	res := httptest.NewRecorder()
 	TodoWithoutID(res, req)
 
-	t.Run("returns all todos and proper status code", func(t *testing.T) {
+	t.Run("proper status code and todos", func(t *testing.T) {
 		var resBody []Todo
 		assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
 		assertStatusCode(t, res.Result().StatusCode, http.StatusOK)
+
 		if len(resBody) != 2 {
-			t.Errorf("didn't get same amount of todos that was created")
+			t.Fatalf("incorrect amount of todos for this user, expected %v but got %v", 2, len(resBody))
 		}
+
+		for _, v := range resBody {
+			if v.UserID != uid {
+				t.Errorf("todo uid mismatch for this user, expected %v but got %v", uid, v.ID)
+			}
+		}
+	})
+
+	testUserIdentity(t, func() *httptest.ResponseRecorder {
+		url := "http://localhost:8080/todos"
+		req := httptest.NewRequest("GET", url, nil)
+		res := httptest.NewRecorder()
+		TodoWithoutID(res, req)
+
+		return res
 	})
 }
 
 func TestGetTodo(t *testing.T) {
-	TruncateTable()
-	defer TruncateTable()
+	TruncateTable(&Todo{})
+	defer TruncateTable(&Todo{})
 	resBody := Todo{}
 
 	// POST a todo
@@ -121,8 +168,8 @@ func TestGetTodo(t *testing.T) {
 }
 
 func TestUpdateTodo(t *testing.T) {
-	TruncateTable()
-	defer TruncateTable()
+	TruncateTable(&Todo{})
+	defer TruncateTable(&Todo{})
 
 	res, _ := CreateTodoReq(nil)
 	var resBody Todo
@@ -172,8 +219,8 @@ func TestUpdateTodo(t *testing.T) {
 }
 
 func TestDeleteTodo(t *testing.T) {
-	TruncateTable()
-	defer TruncateTable()
+	TruncateTable(&Todo{})
+	defer TruncateTable(&Todo{})
 
 	// create the todo
 	res, _ := CreateTodoReq(nil)
@@ -222,8 +269,8 @@ func TestDeleteTodo(t *testing.T) {
 }
 
 func TestIntegration(t *testing.T) {
-	TruncateTable()
-	defer TruncateTable()
+	TruncateTable(&Todo{})
+	defer TruncateTable(&Todo{})
 
 	// create 2 todos
 	reqBody1 := map[string]interface{}{
@@ -283,6 +330,17 @@ func TestIntegration(t *testing.T) {
 	}
 }
 
+// clean the testing environment
+func TestEnd(t *testing.T) {
+	TruncateTable(&User{})
+	// delete all  users
+	db.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&User{})
+	// remove secret file
+	err := os.Remove("/tmp/secret.txt")
+	assertTestError(err)
+}
+
+// accepts an optional request body and sends a POST request to /todos
 func CreateTodoReq(reqBody map[string]interface{}) (*httptest.ResponseRecorder, *http.Request) {
 	if reqBody == nil {
 		reqBody = map[string]interface{}{
@@ -298,4 +356,28 @@ func CreateTodoReq(reqBody map[string]interface{}) (*httptest.ResponseRecorder, 
 	return res, req
 }
 
-// Truncates the Todo table in test database
+// checks if there is any user file in the os and if the data is correct
+// takes a function that describes how the request should be made.
+// valid requests include GET, POST, PUT, DELETE etc
+func testUserIdentity(t *testing.T, f func() *httptest.ResponseRecorder) {
+	t.Run("throws error message and status code on invalid user", func(t *testing.T) {
+		// at this point, the secret file should exist due to TestStart()
+		// so, first delete the file
+		err := os.Remove("/tmp/secret.txt")
+		assertTestError(err)
+
+		// send req to server and assert status code
+		res := f()
+		assertStatusCode(t, res.Result().StatusCode, 401)
+
+		// assert response body
+		got := res.Body.String()
+		want := ErrAuth
+		if got != want {
+			t.Errorf("didn't get proper response body on invalid user")
+		}
+
+		// since we removed the file, put everything back to normal
+		TestStart(t)
+	})
+}

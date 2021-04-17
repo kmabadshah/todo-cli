@@ -2,31 +2,27 @@ package backend
 
 import (
 	"fmt"
+	"github.com/gorilla/mux"
+	goLog "github.com/withmandala/go-log"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	"log"
+	"net/http"
 	"os"
+	"regexp"
 	"testing"
 )
 
-type Todo struct {
-	Text string
-	ID   int
-}
-
-type User struct {
-	Uname string
-	Pass  string
-	ID    int `gorm:"primaryKey"`
-}
-
 var (
-	mode         = "test"
-	db           = InitDB()
-	ErrReqBody   = "Invalid request body, please include a text field with non-zero length"
-	ErrInvalidID = "Invalid id"
-	ErrInternal  = "Please try again later"
+	goLogger       = goLog.New(os.Stderr).WithColor()
+	mode           = "test"
+	db             = InitDB()
+	ErrTodoReqBody = "invalid request body, please include a text field with non-zero length"
+	ErrUserReqBody = "invalid request body, must have a uname and pass field"
+	ErrInvalidID   = "invalid id"
+	ErrInternal    = "please try again later"
+	ErrAuth        = "could not authenticate user"
 )
 
 func assertRandomErr(t *testing.T, err interface{}) {
@@ -42,8 +38,21 @@ func assertStatusCode(t *testing.T, got, want int) {
 	}
 }
 
-func TruncateTable() {
-	db.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&Todo{})
+func TruncateTable(t interface{}) {
+	db.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(t)
+}
+
+func ExtractID(r *http.Request) string {
+	var id string
+
+	if mode == "prod" {
+		id = mux.Vars(r)["id"]
+	} else {
+		re := regexp.MustCompile(`/(todos|users)/(.*)`)
+		id = string(re.FindSubmatch([]byte(r.URL.Path))[2])
+	}
+
+	return id
 }
 
 func InitDB() *gorm.DB {
@@ -71,4 +80,19 @@ func InitDB() *gorm.DB {
 		log.Fatalf("Could not connect to db")
 	}
 	return db
+}
+
+func assertTestError(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+func assertServerError(err error, w http.ResponseWriter) bool {
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(ErrInternal))
+		return false
+	}
+	return true
 }

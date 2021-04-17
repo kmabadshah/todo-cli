@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 )
 
 func TestAddUser(t *testing.T) {
+	TruncateTable(&User{})
+	defer TruncateTable(&User{})
+
 	t.Run("on valid req body", func(t *testing.T) {
 		reqBody := struct {
 			Uname string
@@ -19,15 +23,16 @@ func TestAddUser(t *testing.T) {
 		}
 		res, _ := RequestCreateUser(reqBody)
 
-		t.Run("check response status and body", func(t *testing.T) {
-			var decodedResBody User
-			assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &decodedResBody))
-			assertStatusCode(t, res.Result().StatusCode, http.StatusOK)
+		// check response status and body type
+		decodedResBody := unmarshalAndAssert(t, res)
 
-			if decodedResBody.Uname != reqBody.Uname || decodedResBody.Pass != reqBody.Pass {
-				t.Errorf("Response body does not implement req body")
-			}
-		})
+		// check if the user was actually created
+		var user User
+		db.First(&user, "id=?", decodedResBody.ID)
+
+		if user.Uname != reqBody.Uname {
+			t.Errorf("User was not created")
+		}
 	})
 
 	t.Run("on invalid req body", func(t *testing.T) {
@@ -38,18 +43,71 @@ func TestAddUser(t *testing.T) {
 		}
 		res, _ := RequestCreateUser(reqBody)
 
-		t.Run("check response status and body", func(t *testing.T) {
-			//var decodedResBody User
-			//assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &decodedResBody))
-			got := res.Body.String()
-			want := "invalid request body, must have a uname and pass field"
-			assertStatusCode(t, res.Result().StatusCode, http.StatusBadRequest)
+		// check response status and body text
+		got := res.Body.String()
+		want := ErrUserReqBody
+		assertStatusCode(t, res.Result().StatusCode, http.StatusBadRequest)
 
-			if got != want {
-				t.Errorf("Response body does not adhere to req body")
-			}
-		})
+		if got != want {
+			t.Errorf("Response body does not adhere to req body")
+		}
 	})
+}
+
+func TestGETUser(t *testing.T) {
+	TruncateTable(&User{})
+	defer TruncateTable(&User{})
+
+	reqBody := struct {
+		Uname string
+		Pass  string
+	}{
+		Uname: "adnan",
+		Pass:  "badshah",
+	}
+	res, _ := RequestCreateUser(reqBody)
+
+	// check response status and body type
+	var decodedResBody User
+	assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &decodedResBody))
+	assertStatusCode(t, res.Result().StatusCode, http.StatusOK)
+
+	t.Run("valid req id", func(t *testing.T) {
+		// get request
+		url := "http://localhost:8080/users/" + strconv.Itoa(decodedResBody.ID)
+		req := httptest.NewRequest("GET", url, nil)
+		res = httptest.NewRecorder()
+		GETUser(res, req)
+
+		// unmarshall and check
+		decodedResBody = unmarshalAndAssert(t, res)
+		if decodedResBody.Uname != reqBody.Uname {
+			t.Errorf("Did not GET the user as expected")
+		}
+	})
+
+	t.Run("invalid req id", func(t *testing.T) {
+		// get request
+		url := "http://localhost:8080/users/" + strconv.Itoa(-1)
+		req := httptest.NewRequest("GET", url, nil)
+		res = httptest.NewRecorder()
+		GETUser(res, req)
+		assertStatusCode(t, res.Result().StatusCode, http.StatusNotFound)
+
+		got := res.Body.String()
+		want := ErrInvalidID
+		if got != want {
+			t.Errorf("didn't get proper response, wanted %s but got %s", want, got)
+		}
+	})
+}
+
+func unmarshalAndAssert(t *testing.T, res *httptest.ResponseRecorder) User {
+	var decodedResBody User
+	assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &decodedResBody))
+	assertStatusCode(t, res.Result().StatusCode, http.StatusOK)
+
+	return decodedResBody
 }
 
 func RequestCreateUser(reqBody interface{}) (*httptest.ResponseRecorder, *http.Request) {
@@ -62,3 +120,5 @@ func RequestCreateUser(reqBody interface{}) (*httptest.ResponseRecorder, *http.R
 
 	return res, req
 }
+
+// implement query /users

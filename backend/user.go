@@ -6,10 +6,17 @@ import (
 	"net/http"
 )
 
+type User struct {
+	Uname string
+	Pass  string
+	Todo  []Todo
+	ID    int `gorm:"primaryKey"`
+}
+
 func CreateUser(w http.ResponseWriter, r *http.Request) {
 	// get the req body
 	reqBody, _ := ioutil.ReadAll(r.Body)
-	// unmarshall
+	// unmarshall and check
 	var decodedReqBody struct {
 		Uname string
 		Pass  string
@@ -17,15 +24,34 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 	err := json.Unmarshal(reqBody, &decodedReqBody)
 	if decodedReqBody.Uname == "" || decodedReqBody.Pass == "" || err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("invalid request body, must have a uname and pass field"))
+		_, _ = w.Write([]byte(ErrUserReqBody))
 		return
 	}
 	// insert into db
-	db.Create(&decodedReqBody)
-	// marshall
-	encodedResBody, _ := json.Marshal(decodedReqBody)
-	// write header
+	user := User{
+		Uname: decodedReqBody.Uname,
+		Pass:  decodedReqBody.Pass,
+	}
+	db.Create(&user)
+	// marshall and send
+	encodedResBody, _ := json.Marshal(user)
 	w.WriteHeader(http.StatusOK)
-	// write res
 	_, _ = w.Write(encodedResBody)
+}
+
+func GETUser(w http.ResponseWriter, r *http.Request) {
+	// get the req id
+	id := ExtractID(r)
+	// query db
+	var user User
+	db.First(&user, "id=?", id)
+	if user.ID == 0 {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(ErrInvalidID))
+		return
+	}
+	// marshall and send
+	resBody, _ := json.Marshal(user)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(resBody)
 }

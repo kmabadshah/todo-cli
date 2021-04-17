@@ -18,7 +18,6 @@ var rootCmd = &cobra.Command{
 	Use:   "todo",
 	Short: "todo list app for the 90's",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("hello nigger!!!")
 	},
 }
 
