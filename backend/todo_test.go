@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strconv"
 	"testing"
 )
@@ -72,11 +73,44 @@ func TestCreateTodo(t *testing.T) {
 			t.Error("didn't get proper response message on invalid req body")
 		}
 	})
+}
 
-	testUserIdentity(t, func() *httptest.ResponseRecorder {
-		res, _ := CreateTodoReq(nil)
-		return res
+func TestUserMiddleware(t *testing.T) {
+	// call the userMiddleware()
+	// check for errors
+	t.Run("does not throw error when valid user is present", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "http://localhost:8080/todos", nil)
+		res := httptest.NewRecorder()
+		userMiddleware(res, req)
+
+		// should not write anything to res
+		got := res.Body.Bytes()
+		var want []byte
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("didn't expect anything to be written in the res body, but got %#v", string(got))
+		}
 	})
+
+	t.Run("throws error when no/invalid user is present", func(t *testing.T) {
+		// remove the current user
+		err := os.Remove("/tmp/secret.txt")
+		assertTestError(err)
+
+		req := httptest.NewRequest("GET", "http://localhost:8080/todos", nil)
+		res := httptest.NewRecorder()
+		userMiddleware(res, req)
+
+		// should get proper error response code and body
+		assertStatusCode(t, res.Result().StatusCode, http.StatusUnauthorized)
+		got := res.Body.String()
+		want := ErrAuth
+
+		if got != want {
+			t.Errorf("expected an error on missing/invalid user")
+		}
+	})
+
+	TestStart(t)
 }
 
 func TestGetTodos(t *testing.T) {
@@ -84,16 +118,8 @@ func TestGetTodos(t *testing.T) {
 	defer TruncateTable(&Todo{})
 	CreateTodoReq(nil)
 	CreateTodoReq(nil)
-
-	// create an arbitrary user and save credentials
-	// testUserIdentity() will automatically clear everything
-	// at the end
-	user := User{Uname: "test", Pass: "test"}
-	db.Create(&user)
-	err := ioutil.WriteFile("/tmp/secret.txt", []byte(strconv.Itoa(user.ID)), 0644)
-	assertTestError(err)
-	// create todo for that user
-	CreateTodoReq(nil)
+	_ = addRandomUserAndTodo()
+	defer TestStart(t)
 
 	// get request
 	req := httptest.NewRequest("GET", "http://localhost:8080/todos", nil)
@@ -115,15 +141,6 @@ func TestGetTodos(t *testing.T) {
 			}
 		}
 	})
-
-	testUserIdentity(t, func() *httptest.ResponseRecorder {
-		url := "http://localhost:8080/todos"
-		req := httptest.NewRequest("GET", url, nil)
-		res := httptest.NewRecorder()
-		TodoWithoutID(res, req)
-
-		return res
-	})
 }
 
 func TestGetTodo(t *testing.T) {
@@ -131,14 +148,14 @@ func TestGetTodo(t *testing.T) {
 	defer TruncateTable(&Todo{})
 	resBody := Todo{}
 
-	// POST a todo
+	// create a todo for current user
 	reqBody := map[string]interface{}{
 		"text": "Hello World",
 	}
 	res, _ := CreateTodoReq(reqBody)
 	assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
 
-	t.Run("GET with valid id", func(t *testing.T) {
+	t.Run("GET with valid id for current user", func(t *testing.T) {
 		// GET the todo
 		req := httptest.NewRequest("GET", "http://localhost:8080/todos/"+strconv.Itoa(resBody.ID), nil)
 		res = httptest.NewRecorder()
@@ -159,10 +176,32 @@ func TestGetTodo(t *testing.T) {
 		req := httptest.NewRequest("GET", "http://localhost:8080/todos/"+"-1", nil)
 		res = httptest.NewRecorder()
 		TodoWithID(res, req)
-		assertStatusCode(t, res.Result().StatusCode, http.StatusNotFound)
 
+		// check the result
+		assertStatusCode(t, res.Result().StatusCode, http.StatusNotFound)
 		if res.Body.String() != ErrInvalidID {
 			t.Errorf("Expected error but got %#v", res.Body.String())
+		}
+	})
+
+	t.Run("One User is not able to GET todo of others", func(t *testing.T) {
+		todo := addRandomUserAndTodo()
+		defer TestStart(t)
+
+		// send the request to /todos/todoId
+		url := "http://localhost:8080/todos/" + strconv.Itoa(todo.ID)
+		req := httptest.NewRequest("GET", url, nil)
+		res := httptest.NewRecorder()
+		TodoWithID(res, req)
+
+		// check if the output contains todos
+		// since this todo does not belong to the current user, nothing should be returned
+		got := res.Body.String()
+		want := ErrAuth
+
+		assertStatusCode(t, res.Result().StatusCode, http.StatusUnauthorized)
+		if got != want {
+			t.Errorf("wanted %#v but got %#v", want, got)
 		}
 	})
 }
@@ -186,7 +225,6 @@ func TestUpdateTodo(t *testing.T) {
 			assertStatusCode(t, res.Result().StatusCode, http.StatusOK)
 			assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
 
-			t.Log("http://localhost:8080/todos/" + strconv.Itoa(resBody.ID))
 			if resBody.Text != updatedTodo["text"] {
 				t.Errorf("Did not get the updated text with response")
 			}
@@ -268,68 +306,6 @@ func TestDeleteTodo(t *testing.T) {
 	})
 }
 
-func TestIntegration(t *testing.T) {
-	TruncateTable(&Todo{})
-	defer TruncateTable(&Todo{})
-
-	// create 2 todos
-	reqBody1 := map[string]interface{}{
-		"text":  "integration create todo 1",
-		"hello": "world",
-	}
-
-	reqBody2 := map[string]interface{}{"text": "integration create todo 1"}
-	res1, _ := CreateTodoReq(reqBody1)
-	_, _ = CreateTodoReq(reqBody2)
-
-	t.Run("get all todos and check", func(t *testing.T) {
-		var todos []Todo
-		db.Find(&todos)
-
-		if len(todos) != 2 {
-			t.Fatalf("Created 2 todos but got %#v", len(todos))
-		}
-	})
-
-	// get todo one
-	var resBody Todo
-	assertRandomErr(t, json.Unmarshal(res1.Body.Bytes(), &resBody))
-	req := httptest.NewRequest("GET", "http://localhost:8080/todos/"+strconv.Itoa(resBody.ID), nil)
-	res := httptest.NewRecorder()
-
-	if resBody.ID == 0 {
-		t.Fatalf("Todo didn't get created")
-	}
-
-	// update todo one
-	updatedTodo := map[string]interface{}{
-		"text": "integration update todo 1",
-	}
-	encodedReqBody, _ := json.Marshal(updatedTodo)
-	req = httptest.NewRequest("PUT", "http://localhost:8080/todos/"+strconv.Itoa(resBody.ID), bytes.NewReader(encodedReqBody))
-	res = httptest.NewRecorder()
-	TodoWithID(res, req)
-
-	// decode and check
-	assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
-	if resBody.Text != updatedTodo["text"] {
-		t.Errorf("didn't update todo properly")
-	}
-
-	// delete todo one
-	url := "http://localhost:8080/todos/" + strconv.Itoa(resBody.ID)
-	req = httptest.NewRequest("DELETE", url, nil)
-	res = httptest.NewRecorder()
-	TodoWithID(res, req)
-
-	// check if deleted
-	var td Todo
-	db.Find(&td, "id=?", resBody.ID)
-	if td.ID != 0 {
-		t.Errorf("Expected todo to be deleted")
-	}
-}
-
 // clean the testing environment
 func TestEnd(t *testing.T) {
 	TruncateTable(&User{})
@@ -356,28 +332,23 @@ func CreateTodoReq(reqBody map[string]interface{}) (*httptest.ResponseRecorder, 
 	return res, req
 }
 
-// checks if there is any user file in the os and if the data is correct
-// takes a function that describes how the request should be made.
-// valid requests include GET, POST, PUT, DELETE etc
-func testUserIdentity(t *testing.T, f func() *httptest.ResponseRecorder) {
-	t.Run("throws error message and status code on invalid user", func(t *testing.T) {
-		// at this point, the secret file should exist due to TestStart()
-		// so, first delete the file
-		err := os.Remove("/tmp/secret.txt")
-		assertTestError(err)
+// create an arbitrary user, create a todo for him, then switch back to previous user
+// returns the todo for the arbitrary user
+func addRandomUserAndTodo() Todo {
+	// arbitrary user
+	user := User{Uname: "test", Pass: "test"}
+	db.Create(&user)
+	err := ioutil.WriteFile("/tmp/secret.txt", []byte(strconv.Itoa(user.ID)), 0644)
+	assertTestError(err)
+	// create todo for that user
+	res, _ := CreateTodoReq(nil)
+	// unmarshall the todo
+	var todo Todo
+	err = json.Unmarshal(res.Body.Bytes(), &todo)
+	assertTestError(err)
+	// switch back to our main user
+	err = ioutil.WriteFile("/tmp/secret.txt", []byte(strconv.Itoa(uid)), 0644)
+	assertTestError(err)
 
-		// send req to server and assert status code
-		res := f()
-		assertStatusCode(t, res.Result().StatusCode, 401)
-
-		// assert response body
-		got := res.Body.String()
-		want := ErrAuth
-		if got != want {
-			t.Errorf("didn't get proper response body on invalid user")
-		}
-
-		// since we removed the file, put everything back to normal
-		TestStart(t)
-	})
+	return todo
 }

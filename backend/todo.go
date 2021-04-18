@@ -17,6 +17,24 @@ type Todo struct {
 	UserID int `gorm:"column:uid"`
 }
 
+func userMiddleware(w http.ResponseWriter, _ *http.Request) {
+	// check if the secret exists
+	data, err := ioutil.ReadFile("/tmp/secret.txt")
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(ErrAuth))
+		return
+	}
+	// check if the found data is valid
+	var user User
+	db.First(&user, "id=?", string(data))
+	// if not, send error code and body
+	if user.ID == 0 {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(ErrAuth))
+	}
+}
+
 func TodoWithoutID(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
@@ -51,14 +69,16 @@ func HandleGETOne(w http.ResponseWriter, r *http.Request) {
 
 func HandleGETAll(w http.ResponseWriter, _ *http.Request) {
 	// get the secret user id
-	_, err := getUserId(w)
+	uid, err := getUserId(w)
 	if err != nil {
 		return
 	}
 
-	var allTodos []Todo
-	db.Find(&allTodos)
-	encodedData, _ := json.Marshal(allTodos)
+	// use the user id to get data from todo table
+	var todos []Todo
+	db.Find(&todos, "uid=?", uid)
+
+	encodedData, _ := json.Marshal(todos)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(encodedData)
 }
