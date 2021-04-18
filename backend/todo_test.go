@@ -197,9 +197,9 @@ func TestGetTodo(t *testing.T) {
 		// check if the output contains todos
 		// since this todo does not belong to the current user, nothing should be returned
 		got := res.Body.String()
-		want := ErrAuth
+		want := ErrInvalidID
 
-		assertStatusCode(t, res.Result().StatusCode, http.StatusUnauthorized)
+		assertStatusCode(t, res.Result().StatusCode, http.StatusNotFound)
 		if got != want {
 			t.Errorf("wanted %#v but got %#v", want, got)
 		}

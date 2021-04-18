@@ -56,7 +56,13 @@ func TodoWithID(w http.ResponseWriter, r *http.Request) {
 }
 
 func HandleGETOne(w http.ResponseWriter, r *http.Request) {
-	todo := GetTodoByID(r)
+	// get the uid
+	uid, err := getUserId(w)
+	if err != nil {
+		return
+	}
+
+	todo := GetTodoByID(uid, r)
 	if todo.ID == 0 {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(ErrInvalidID))
@@ -120,7 +126,11 @@ func HandlePUT(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// update todo using id
-	todo := GetTodoByID(r)
+	uid, err := getUserId(w)
+	if err != nil {
+		return
+	}
+	todo := GetTodoByID(uid, r)
 	if todo.ID == 0 {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(ErrInvalidID))
@@ -136,8 +146,12 @@ func HandlePUT(w http.ResponseWriter, r *http.Request) {
 }
 
 func HandleDelete(w http.ResponseWriter, r *http.Request) {
+	uid, err := getUserId(w)
+	if err != nil {
+		return
+	}
 	// get the id
-	todo := GetTodoByID(r)
+	todo := GetTodoByID(uid, r)
 	if todo.ID == 0 {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(ErrInvalidID))
@@ -155,7 +169,7 @@ func HandleDelete(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("Successfully deleted id " + strconv.Itoa(todo.ID)))
 }
 
-func GetTodoByID(r *http.Request) Todo {
+func GetTodoByID(uid int, r *http.Request) Todo {
 	var id string
 
 	if mode == "prod" {
@@ -166,18 +180,9 @@ func GetTodoByID(r *http.Request) Todo {
 	}
 
 	var todo Todo
-	db.First(&todo, "id=?", id)
+	db.First(&todo, "id=? and uid=?", id, uid)
 
 	return todo
-}
-
-func StartServer() {
-	router := mux.NewRouter()
-	router.Path("/todos").HandlerFunc(TodoWithoutID)
-	router.Path("/todos/{id}").HandlerFunc(TodoWithID)
-
-	fmt.Println("Listening on port 8080")
-	log.Fatal(http.ListenAndServe(":8080", router))
 }
 
 func getUserId(w http.ResponseWriter) (int, error) {
@@ -196,4 +201,13 @@ func getUserId(w http.ResponseWriter) (int, error) {
 	}
 
 	return uid, nil
+}
+
+func StartServer() {
+	router := mux.NewRouter()
+	router.Path("/todos").HandlerFunc(TodoWithoutID)
+	router.Path("/todos/{id}").HandlerFunc(TodoWithID)
+
+	fmt.Println("Listening on port 8080")
+	log.Fatal(http.ListenAndServe(":8080", router))
 }
