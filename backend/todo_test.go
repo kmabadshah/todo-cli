@@ -185,24 +185,15 @@ func TestGetTodo(t *testing.T) {
 	})
 
 	t.Run("One User is not able to GET todo of others", func(t *testing.T) {
-		todo := addRandomUserAndTodo()
-		defer TestStart(t)
-
 		// send the request to /todos/todoId
-		url := "http://localhost:8080/todos/" + strconv.Itoa(todo.ID)
-		req := httptest.NewRequest("GET", url, nil)
-		res := httptest.NewRecorder()
-		TodoWithID(res, req)
+		testUserAccess(t, func(todo Todo) *httptest.ResponseRecorder {
+			url := "http://localhost:8080/todos/" + strconv.Itoa(todo.ID)
+			req := httptest.NewRequest("GET", url, nil)
+			res := httptest.NewRecorder()
+			TodoWithID(res, req)
 
-		// check if the output contains todos
-		// since this todo does not belong to the current user, nothing should be returned
-		got := res.Body.String()
-		want := ErrInvalidID
-
-		assertStatusCode(t, res.Result().StatusCode, http.StatusNotFound)
-		if got != want {
-			t.Errorf("wanted %#v but got %#v", want, got)
-		}
+			return res
+		})
 	})
 }
 
@@ -254,6 +245,20 @@ func TestUpdateTodo(t *testing.T) {
 		}
 	})
 
+	t.Run("one user is not able to update another user's todo", func(t *testing.T) {
+		testUserAccess(t, func(todo Todo) *httptest.ResponseRecorder {
+			// send the request to /todos/todoId
+			url := "http://localhost:8080/todos/" + strconv.Itoa(todo.ID)
+			reqBody := map[string]interface{}{"text": "hello adnan"}
+			encodedReqBody, err := json.Marshal(reqBody)
+			assertTestError(err)
+			req := httptest.NewRequest("PUT", url, bytes.NewReader(encodedReqBody))
+			res := httptest.NewRecorder()
+			TodoWithID(res, req)
+
+			return res
+		})
+	})
 }
 
 func TestDeleteTodo(t *testing.T) {
@@ -304,6 +309,18 @@ func TestDeleteTodo(t *testing.T) {
 			t.Errorf("Didn't get proper error message")
 		}
 	})
+
+	t.Run("one user is not able to delete another user's todo", func(t *testing.T) {
+		testUserAccess(t, func(todo Todo) *httptest.ResponseRecorder {
+			// send the request to /todos/todoId
+			url := "http://localhost:8080/todos/" + strconv.Itoa(todo.ID)
+			req := httptest.NewRequest("DELETE", url, nil)
+			res := httptest.NewRecorder()
+			TodoWithID(res, req)
+
+			return res
+		})
+	})
 }
 
 // clean the testing environment
@@ -314,6 +331,27 @@ func TestEnd(t *testing.T) {
 	// remove secret file
 	err := os.Remove("/tmp/secret.txt")
 	assertTestError(err)
+}
+
+// tests whether or not a user has unauthorized access to a route
+// accepts a func f as argument which is expected to make a request to the
+// route that is to be tested and return the response object
+func testUserAccess(t *testing.T, f func(todo Todo) *httptest.ResponseRecorder) {
+	todo := addRandomUserAndTodo()
+	defer TestStart(t)
+
+	// create the request
+	res := f(todo)
+
+	// check if the output contains todos
+	// since this todo does not belong to the current user, nothing should be returned
+	got := res.Body.String()
+	want := ErrInvalidID
+
+	assertStatusCode(t, res.Result().StatusCode, http.StatusNotFound)
+	if got != want {
+		t.Errorf("wanted %#v but got %#v", want, got)
+	}
 }
 
 // accepts an optional request body and sends a POST request to /todos

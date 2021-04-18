@@ -4,11 +4,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"testing"
 )
 
 func TestIntegration(t *testing.T) {
+	integration := os.Getenv("INTEGRATION")
+	if integration == "" {
+		t.Skip("set INTEGRATION to run this test")
+	}
+
 	TruncateTable(&Todo{})
 	defer TruncateTable(&Todo{})
 
