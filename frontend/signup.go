@@ -10,15 +10,17 @@ func init() {
 	cmd := &cobra.Command{
 		Use:   "signup",
 		Short: "signup for a user",
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			err := MakeRequest(
 				"POST",
 				"http://localhost:8080/users",
 				[]byte(data),
 			)
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
+
+			return nil
 		},
 	}
 

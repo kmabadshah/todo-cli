@@ -67,7 +67,7 @@ func GETUser(w http.ResponseWriter, r *http.Request) {
 	db.First(&user, "uname=? and pass=?", uname, pass)
 	if user.ID == 0 {
 		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte(ErrInvalidID))
+		_, _ = w.Write([]byte(ErrUserReqBody))
 		return
 	}
 

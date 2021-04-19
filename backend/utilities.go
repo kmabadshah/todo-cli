@@ -21,10 +21,10 @@ import (
 
 var (
 	goLogger       = goLog.New(os.Stderr).WithColor()
-	mode           = "test"
+	mode           = "prod"
 	db             = InitDB()
 	ErrTodoReqBody = "invalid request body, please include a text field with non-zero length"
-	ErrUserReqBody = "invalid request body, must have a uname and pass field"
+	ErrUserReqBody = "invalid request body, must have a valid uname and pass field"
 	ErrInvalidID   = "invalid id"
 	ErrInternal    = "please try again later"
 	ErrAuth        = "could not authenticate user"

@@ -206,8 +206,8 @@ func getUserId(w http.ResponseWriter) (int, error) {
 func StartServer() {
 	router := mux.NewRouter()
 	router.Path("/todos").HandlerFunc(TodoWithoutID)
-	router.Path("/users").HandlerFunc(CreateUser)
-	router.Path("/users/{id}").HandlerFunc(GETUser)
+	router.Path("/users").Methods("POST").HandlerFunc(CreateUser)
+	router.Path("/users").Methods("GET").HandlerFunc(GETUser)
 	router.Path("/todos/{id}").HandlerFunc(TodoWithID)
 
 	fmt.Println("Listening on port 8080")
