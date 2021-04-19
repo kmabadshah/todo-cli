@@ -3,6 +3,7 @@ package backend
 import (
 	"bytes"
 	"encoding/json"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -10,8 +11,8 @@ import (
 )
 
 func TestAddUser(t *testing.T) {
-	TruncateTable(&User{})
-	defer TruncateTable(&User{})
+	cleanTestEnvironment()
+	defer cleanTestEnvironment()
 
 	t.Run("on valid req body", func(t *testing.T) {
 		reqBody := struct {
@@ -29,7 +30,6 @@ func TestAddUser(t *testing.T) {
 		// check if the user was actually created
 		var user User
 		db.First(&user, "id=?", decodedResBody.ID)
-
 		if user.Uname != reqBody.Uname {
 			t.Errorf("User was not created")
 		}
@@ -55,8 +55,8 @@ func TestAddUser(t *testing.T) {
 }
 
 func TestGETUser(t *testing.T) {
-	TruncateTable(&User{})
-	defer TruncateTable(&User{})
+	cleanTestEnvironment()
+	defer cleanTestEnvironment()
 
 	reqBody := struct {
 		Uname string
@@ -102,14 +102,6 @@ func TestGETUser(t *testing.T) {
 	})
 }
 
-func unmarshalAndAssert(t *testing.T, res *httptest.ResponseRecorder) User {
-	var decodedResBody User
-	assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &decodedResBody))
-	assertStatusCode(t, res.Result().StatusCode, http.StatusOK)
-
-	return decodedResBody
-}
-
 func RequestCreateUser(reqBody interface{}) (*httptest.ResponseRecorder, *http.Request) {
 	// marshall
 	encodedReqBody, _ := json.Marshal(reqBody)
@@ -121,4 +113,10 @@ func RequestCreateUser(reqBody interface{}) (*httptest.ResponseRecorder, *http.R
 	return res, req
 }
 
-// implement query /users
+func checkIfSecretFileStored(t *testing.T) {
+	// check if there is a secret file stored
+	_, err := ioutil.ReadFile("/tmp/secret.txt")
+	if err != nil {
+		t.Errorf("Secret file has not been stored")
+	}
+}

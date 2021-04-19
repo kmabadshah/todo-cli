@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 )
 
 type User struct {
@@ -33,6 +34,7 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 		Pass:  decodedReqBody.Pass,
 	}
 	db.Create(&user)
+
 	// marshall and send
 	encodedResBody, _ := json.Marshal(user)
 	w.WriteHeader(http.StatusOK)
@@ -50,8 +52,18 @@ func GETUser(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(ErrInvalidID))
 		return
 	}
+
 	// marshall and send
 	resBody, _ := json.Marshal(user)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(resBody)
+
+}
+
+func logIn(user User) {
+	// store into secret file
+	err := ioutil.WriteFile("/tmp/secret.txt", []byte(strconv.Itoa(user.ID)), 0644)
+	if err != nil {
+		panic(err)
+	}
 }

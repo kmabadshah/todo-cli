@@ -1,16 +1,21 @@
 package backend
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
 	goLog "github.com/withmandala/go-log"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"io/ioutil"
 	"log"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"regexp"
+	"strconv"
 	"testing"
 )
 
@@ -23,7 +28,29 @@ var (
 	ErrInvalidID   = "invalid id"
 	ErrInternal    = "please try again later"
 	ErrAuth        = "could not authenticate user"
+	uid            = 0
 )
+
+// initialize the testing environment for subsequent tests
+func initTestEnvironment() {
+	TruncateTable(&Todo{})
+	TruncateTable(&User{})
+	// create the user
+	user := User{Uname: "adnan", Pass: "badshah"}
+	db.Create(&user)
+	uid = user.ID
+	// create the secret file
+	err := ioutil.WriteFile("/tmp/secret.txt", []byte(strconv.Itoa(user.ID)), 0644)
+	assertTestError(err)
+}
+
+// clean the testing environment
+func cleanTestEnvironment() {
+	TruncateTable(&User{})
+	TruncateTable(&Todo{})
+	// remove secret file
+	_ = os.Remove("/tmp/secret.txt")
+}
 
 func assertRandomErr(t *testing.T, err interface{}) {
 	t.Helper()
@@ -95,4 +122,28 @@ func assertServerError(err error, w http.ResponseWriter) bool {
 		return false
 	}
 	return true
+}
+
+// CreateTodoReq accepts an optional request body and sends a POST request to /todos
+func CreateTodoReq(reqBody map[string]interface{}) (*httptest.ResponseRecorder, *http.Request) {
+	if reqBody == nil {
+		reqBody = map[string]interface{}{
+			"text":      "GET TODOS TEST",
+			"something": "else",
+		}
+	}
+	reqJSONBody, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest("POST", "http://localhost:8080/todos", bytes.NewReader(reqJSONBody))
+	res := httptest.NewRecorder()
+	TodoWithoutID(res, req)
+
+	return res, req
+}
+
+func unmarshalAndAssert(t *testing.T, res *httptest.ResponseRecorder) User {
+	var decodedResBody User
+	assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &decodedResBody))
+	assertStatusCode(t, res.Result().StatusCode, http.StatusOK)
+
+	return decodedResBody
 }

@@ -3,7 +3,6 @@ package backend
 import (
 	"bytes"
 	"encoding/json"
-	"gorm.io/gorm"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -13,23 +12,9 @@ import (
 	"testing"
 )
 
-var uid int
-
-// initialize the testing environment for subsequent tests
-func TestStart(t *testing.T) {
-	TruncateTable(&User{})
-	// create the user
-	user := User{Uname: "adnan", Pass: "badshah"}
-	db.Create(&user)
-	uid = user.ID
-	// create the secret file
-	err := ioutil.WriteFile("/tmp/secret.txt", []byte(strconv.Itoa(user.ID)), 0644)
-	assertTestError(err)
-}
-
 func TestCreateTodo(t *testing.T) {
-	TruncateTable(&Todo{})
-	defer TruncateTable(&Todo{})
+	initTestEnvironment()
+	defer cleanTestEnvironment()
 
 	t.Run("on valid req body", func(t *testing.T) {
 		reqBody := map[string]interface{}{
@@ -76,6 +61,9 @@ func TestCreateTodo(t *testing.T) {
 }
 
 func TestUserMiddleware(t *testing.T) {
+	initTestEnvironment()
+	defer cleanTestEnvironment()
+
 	// call the userMiddleware()
 	// check for errors
 	t.Run("does not throw error when valid user is present", func(t *testing.T) {
@@ -108,18 +96,19 @@ func TestUserMiddleware(t *testing.T) {
 		if got != want {
 			t.Errorf("expected an error on missing/invalid user")
 		}
-	})
 
-	TestStart(t)
+		// since we deleted the current user
+		initTestEnvironment()
+	})
 }
 
 func TestGetTodos(t *testing.T) {
-	TruncateTable(&Todo{})
-	defer TruncateTable(&Todo{})
+	initTestEnvironment()
+	defer cleanTestEnvironment()
+
 	CreateTodoReq(nil)
 	CreateTodoReq(nil)
 	_ = addRandomUserAndTodo()
-	defer TestStart(t)
 
 	// get request
 	req := httptest.NewRequest("GET", "http://localhost:8080/todos", nil)
@@ -144,15 +133,15 @@ func TestGetTodos(t *testing.T) {
 }
 
 func TestGetTodo(t *testing.T) {
-	TruncateTable(&Todo{})
-	defer TruncateTable(&Todo{})
-	resBody := Todo{}
+	initTestEnvironment()
+	defer cleanTestEnvironment()
 
 	// create a todo for current user
 	reqBody := map[string]interface{}{
 		"text": "Hello World",
 	}
 	res, _ := CreateTodoReq(reqBody)
+	resBody := Todo{}
 	assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
 
 	t.Run("GET with valid id for current user", func(t *testing.T) {
@@ -198,8 +187,8 @@ func TestGetTodo(t *testing.T) {
 }
 
 func TestUpdateTodo(t *testing.T) {
-	TruncateTable(&Todo{})
-	defer TruncateTable(&Todo{})
+	initTestEnvironment()
+	defer cleanTestEnvironment()
 
 	res, _ := CreateTodoReq(nil)
 	var resBody Todo
@@ -262,8 +251,8 @@ func TestUpdateTodo(t *testing.T) {
 }
 
 func TestDeleteTodo(t *testing.T) {
-	TruncateTable(&Todo{})
-	defer TruncateTable(&Todo{})
+	initTestEnvironment()
+	defer cleanTestEnvironment()
 
 	// create the todo
 	res, _ := CreateTodoReq(nil)
@@ -323,22 +312,12 @@ func TestDeleteTodo(t *testing.T) {
 	})
 }
 
-// clean the testing environment
-func TestEnd(t *testing.T) {
-	TruncateTable(&User{})
-	// delete all  users
-	db.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&User{})
-	// remove secret file
-	err := os.Remove("/tmp/secret.txt")
-	assertTestError(err)
-}
-
 // tests whether or not a user has unauthorized access to a route
 // accepts a func f as argument which is expected to make a request to the
 // route that is to be tested and return the response object
 func testUserAccess(t *testing.T, f func(todo Todo) *httptest.ResponseRecorder) {
 	todo := addRandomUserAndTodo()
-	defer TestStart(t)
+	//defer TestStart(t)
 
 	// create the request
 	res := f(todo)
@@ -352,22 +331,6 @@ func testUserAccess(t *testing.T, f func(todo Todo) *httptest.ResponseRecorder) 
 	if got != want {
 		t.Errorf("wanted %#v but got %#v", want, got)
 	}
-}
-
-// accepts an optional request body and sends a POST request to /todos
-func CreateTodoReq(reqBody map[string]interface{}) (*httptest.ResponseRecorder, *http.Request) {
-	if reqBody == nil {
-		reqBody = map[string]interface{}{
-			"text":      "GET TODOS TEST",
-			"something": "else",
-		}
-	}
-	reqJSONBody, _ := json.Marshal(reqBody)
-	req := httptest.NewRequest("POST", "http://localhost:8080/todos", bytes.NewReader(reqJSONBody))
-	res := httptest.NewRecorder()
-	TodoWithoutID(res, req)
-
-	return res, req
 }
 
 // create an arbitrary user, create a todo for him, then switch back to previous user
