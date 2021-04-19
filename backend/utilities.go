@@ -125,9 +125,9 @@ func assertServerError(err error, w http.ResponseWriter) bool {
 }
 
 // CreateTodoReq accepts an optional request body and sends a POST request to /todos
-func CreateTodoReq(reqBody map[string]interface{}) (*httptest.ResponseRecorder, *http.Request) {
+func CreateTodoReq(reqBody map[string]string) (*httptest.ResponseRecorder, *http.Request) {
 	if reqBody == nil {
-		reqBody = map[string]interface{}{
+		reqBody = map[string]string{
 			"text":      "GET TODOS TEST",
 			"something": "else",
 		}
@@ -140,10 +140,19 @@ func CreateTodoReq(reqBody map[string]interface{}) (*httptest.ResponseRecorder, 
 	return res, req
 }
 
-func unmarshalAndAssert(t *testing.T, res *httptest.ResponseRecorder) User {
-	var decodedResBody User
+func unmarshalAndAssert(t *testing.T, res *httptest.ResponseRecorder) map[string]interface{} {
+	var decodedResBody map[string]interface{}
 	assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &decodedResBody))
 	assertStatusCode(t, res.Result().StatusCode, http.StatusOK)
 
 	return decodedResBody
+}
+
+func LogIn(user map[string]interface{}) {
+	// store into secret file
+	id := strconv.Itoa(int(user["id"].(float64)))
+	err := ioutil.WriteFile("/tmp/secret.txt", []byte(id), 0644)
+	if err != nil {
+		panic(err)
+	}
 }

@@ -4,14 +4,13 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
-	"strconv"
 )
 
 type User struct {
-	Uname string
-	Pass  string
-	Todo  []Todo
-	ID    int `gorm:"primaryKey"`
+	Uname string `json:"uname"`
+	Pass  string `json:"pass"`
+	Todos []Todo `json:"todos"`
+	ID    int    `gorm:"primaryKey" json:"id"`
 }
 
 func CreateUser(w http.ResponseWriter, r *http.Request) {
@@ -42,11 +41,30 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func GETUser(w http.ResponseWriter, r *http.Request) {
-	// get the req id
-	id := ExtractID(r)
-	// query db
+	// parse the req body
+	reqBody, err := ioutil.ReadAll(r.Body)
+	if !assertServerError(err, w) {
+		return
+	}
+	decodedResBody := map[string]interface{}{}
+	err = json.Unmarshal(reqBody, &decodedResBody)
+	if !assertServerError(err, w) {
+		return
+	}
+
+	uname := decodedResBody["uname"]
+	pass := decodedResBody["pass"]
+
+	if uname == nil || pass == nil {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(ErrUserReqBody))
+		return
+	}
+
+	// get the uname and pass
+	// query the db with uname and pass
 	var user User
-	db.First(&user, "id=?", id)
+	db.First(&user, "uname=? and pass=?", uname, pass)
 	if user.ID == 0 {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = w.Write([]byte(ErrInvalidID))
@@ -58,12 +76,4 @@ func GETUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(resBody)
 
-}
-
-func logIn(user User) {
-	// store into secret file
-	err := ioutil.WriteFile("/tmp/secret.txt", []byte(strconv.Itoa(user.ID)), 0644)
-	if err != nil {
-		panic(err)
-	}
 }

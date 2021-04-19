@@ -12,9 +12,9 @@ import (
 )
 
 type Todo struct {
-	Text   string
-	ID     int `gorm:"primaryKey"`
-	UserID int `gorm:"column:uid"`
+	Text   string `json:"text"`
+	ID     int    `gorm:"primaryKey" json:"id"`
+	UserID int    `gorm:"column:uid" json:"uid"`
 }
 
 func userMiddleware(w http.ResponseWriter, _ *http.Request) {
@@ -125,7 +125,7 @@ func HandlePUT(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// update todo using id
+	// check if todo exists and update
 	uid, err := getUserId(w)
 	if err != nil {
 		return
@@ -206,6 +206,8 @@ func getUserId(w http.ResponseWriter) (int, error) {
 func StartServer() {
 	router := mux.NewRouter()
 	router.Path("/todos").HandlerFunc(TodoWithoutID)
+	router.Path("/users").HandlerFunc(CreateUser)
+	router.Path("/users/{id}").HandlerFunc(GETUser)
 	router.Path("/todos/{id}").HandlerFunc(TodoWithID)
 
 	fmt.Println("Listening on port 8080")

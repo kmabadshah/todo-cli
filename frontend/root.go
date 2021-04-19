@@ -79,12 +79,13 @@ func MakeRequest(method, url string, data []byte) error {
 	// decode
 	var decodedResBody interface{}
 	if err := json.Unmarshal(resBody, &decodedResBody); err != nil {
-		fmt.Println(string(resBody))
+		fmt.Print(string(resBody))
 		return nil
 	}
 
+	// if the response is an array, loop over
+	// otherwise print directly
 	sliceResBody, ok := decodedResBody.([]interface{})
-
 	if ok {
 		for _, v := range sliceResBody {
 			fmt.Println(v)

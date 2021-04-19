@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"testing"
 )
 
@@ -15,12 +14,9 @@ func TestAddUser(t *testing.T) {
 	defer cleanTestEnvironment()
 
 	t.Run("on valid req body", func(t *testing.T) {
-		reqBody := struct {
-			Uname string
-			Pass  string
-		}{
-			Uname: "adnan",
-			Pass:  "badshah",
+		reqBody := map[string]string{
+			"uname": "adnan",
+			"pass":  "badshah",
 		}
 		res, _ := RequestCreateUser(reqBody)
 
@@ -29,17 +25,15 @@ func TestAddUser(t *testing.T) {
 
 		// check if the user was actually created
 		var user User
-		db.First(&user, "id=?", decodedResBody.ID)
-		if user.Uname != reqBody.Uname {
+		db.First(&user, "id=?", decodedResBody["id"])
+		if user.Uname != reqBody["uname"] {
 			t.Errorf("User was not created")
 		}
 	})
 
 	t.Run("on invalid req body", func(t *testing.T) {
-		reqBody := struct {
-			Pass string
-		}{
-			Pass: "badshah",
+		reqBody := map[string]string{
+			"pass": "something",
 		}
 		res, _ := RequestCreateUser(reqBody)
 
@@ -58,44 +52,49 @@ func TestGETUser(t *testing.T) {
 	cleanTestEnvironment()
 	defer cleanTestEnvironment()
 
-	reqBody := struct {
-		Uname string
-		Pass  string
-	}{
-		Uname: "adnan",
-		Pass:  "badshah",
+	reqBody := map[string]string{
+		"uname": "adnan",
+		"pass":  "badshah",
 	}
 	res, _ := RequestCreateUser(reqBody)
 
 	// check response status and body type
-	var decodedResBody User
+	var decodedResBody map[string]interface{}
 	assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &decodedResBody))
 	assertStatusCode(t, res.Result().StatusCode, http.StatusOK)
 
-	t.Run("valid req id", func(t *testing.T) {
+	t.Run("valid req body", func(t *testing.T) {
 		// get request
-		url := "http://localhost:8080/users/" + strconv.Itoa(decodedResBody.ID)
-		req := httptest.NewRequest("GET", url, nil)
+		url := "http://localhost:8080/users"
+		getReqBody, err := json.Marshal(reqBody)
+		assertTestError(err)
+		req := httptest.NewRequest("GET", url, bytes.NewReader(getReqBody))
 		res = httptest.NewRecorder()
 		GETUser(res, req)
 
 		// unmarshall and check
 		decodedResBody = unmarshalAndAssert(t, res)
-		if decodedResBody.Uname != reqBody.Uname {
+		if decodedResBody["uname"] != reqBody["uname"] {
 			t.Errorf("Did not GET the user as expected")
 		}
 	})
 
-	t.Run("invalid req id", func(t *testing.T) {
+	t.Run("invalid req body", func(t *testing.T) {
 		// get request
-		url := "http://localhost:8080/users/" + strconv.Itoa(-1)
-		req := httptest.NewRequest("GET", url, nil)
+		reqBody := map[string]interface{}{
+			"uname":     "adnan",
+			"something": 10,
+		}
+		encodedReqBody, err := json.Marshal(reqBody)
+		assertTestError(err)
+		url := "http://localhost:8080/users"
+		req := httptest.NewRequest("GET", url, bytes.NewReader(encodedReqBody))
 		res = httptest.NewRecorder()
 		GETUser(res, req)
 		assertStatusCode(t, res.Result().StatusCode, http.StatusNotFound)
 
 		got := res.Body.String()
-		want := ErrInvalidID
+		want := ErrUserReqBody
 		if got != want {
 			t.Errorf("didn't get proper response, wanted %s but got %s", want, got)
 		}

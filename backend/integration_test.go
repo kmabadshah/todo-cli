@@ -18,28 +18,33 @@ func TestIntegration(t *testing.T) {
 	cleanTestEnvironment()
 	defer cleanTestEnvironment()
 
-	user := User{}
+	var user map[string]interface{}
 	t.Run("create and get user", func(t *testing.T) {
 		// create the user
 		reqBody := map[string]string{
 			"uname": "adnan", "pass": "badshah",
 		}
 		encodedReqBody, _ := json.Marshal(reqBody)
-		req := httptest.NewRequest("POST", "http://localhost:8080/users", bytes.NewReader(encodedReqBody))
+		req := httptest.NewRequest(
+			"POST",
+			"http://localhost:8080/users",
+			bytes.NewReader(encodedReqBody),
+		)
 		res := httptest.NewRecorder()
 		CreateUser(res, req)
-		createdUser := User{}
+		// decode
+		var createdUser map[string]interface{}
 		err := json.Unmarshal(res.Body.Bytes(), &createdUser)
 		assertTestError(err)
 
 		// get the user
-		req = httptest.NewRequest("GET", "http://localhost:8080/users/"+strconv.Itoa(createdUser.ID), nil)
+		req = httptest.NewRequest("GET", "http://localhost:8080/users", bytes.NewReader(encodedReqBody))
 		res = httptest.NewRecorder()
 		GETUser(res, req)
-		gotUser := User{}
-		err = json.Unmarshal(res.Body.Bytes(), &gotUser)
-		assertTestError(err)
-		if gotUser.Uname != reqBody["uname"] {
+		// decode and check
+		var gotUser map[string]interface{}
+		assertTestError(json.Unmarshal(res.Body.Bytes(), &gotUser))
+		if gotUser["uname"] != reqBody["uname"] {
 			t.Fatalf("User not created properly")
 		}
 
@@ -47,31 +52,31 @@ func TestIntegration(t *testing.T) {
 	})
 
 	t.Run("CRUD todos", func(t *testing.T) {
-		logIn(user)
+		LogIn(user)
 
 		// create 2 todos
 		res1, _ := CreateTodoReq(nil)
-		todo1 := Todo{}
-		err := json.Unmarshal(res1.Body.Bytes(), &todo1)
-		assertTestError(err)
+		var todo1 map[string]interface{}
+		assertTestError(json.Unmarshal(res1.Body.Bytes(), &todo1))
+		id1 := int(todo1["id"].(float64))
 
 		res2, _ := CreateTodoReq(nil)
-		todo2 := Todo{}
-		err = json.Unmarshal(res2.Body.Bytes(), &todo2)
-		assertTestError(err)
+		var todo2 map[string]interface{}
+		assertTestError(json.Unmarshal(res2.Body.Bytes(), &todo2))
+		id2 := int(todo2["id"].(float64))
 
 		// update todo1 and check
 		updatedTodoReqBody := map[string]string{"text": "updated todo"}
-		updateTodo(todo1.ID, updatedTodoReqBody)
+		updateTodo(id1, updatedTodoReqBody)
 
-		todo1 = getTodo(todo1.ID)
-		if todo1.Text != updatedTodoReqBody["text"] {
+		todo1 = getTodo(id1)
+		if todo1["text"] != updatedTodoReqBody["text"] {
 			t.Fatalf("todo not updated properly")
 		}
 
 		// delete the todos
-		deleteTodo(todo1.ID)
-		deleteTodo(todo2.ID)
+		deleteTodo(id1)
+		deleteTodo(id2)
 
 	})
 }
@@ -88,7 +93,7 @@ func updateTodo(id int, reqBody interface{}) {
 	)
 }
 
-func getTodo(id int) Todo {
+func getTodo(id int) map[string]interface{} {
 	res := httptest.NewRecorder()
 	TodoWithID(
 		res,
@@ -98,7 +103,7 @@ func getTodo(id int) Todo {
 			nil,
 		),
 	)
-	todo := Todo{}
+	var todo map[string]interface{}
 	err := json.Unmarshal(res.Body.Bytes(), &todo)
 	assertTestError(err)
 

@@ -17,16 +17,16 @@ func TestCreateTodo(t *testing.T) {
 	defer cleanTestEnvironment()
 
 	t.Run("on valid req body", func(t *testing.T) {
-		reqBody := map[string]interface{}{
+		reqBody := map[string]string{
 			"text":      "Hello World",
 			"something": "else",
 		}
 		res, _ := CreateTodoReq(reqBody)
 
-		var resBody Todo
+		var resBody map[string]interface{}
 		assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
-		resBodyText := resBody.Text
-		resBodyID := resBody.ID
+		resBodyText := resBody["text"]
+		resBodyID := resBody["id"]
 		reqBodyText, _ := reqBody["text"]
 
 		t.Run("response body is of type Todo and response status code is ok", func(t *testing.T) {
@@ -46,7 +46,7 @@ func TestCreateTodo(t *testing.T) {
 	})
 
 	t.Run("proper response message and status code on invalid req body", func(t *testing.T) {
-		reqBody := map[string]interface{}{
+		reqBody := map[string]string{
 			"invalid": "request-body",
 		}
 		res, _ := CreateTodoReq(reqBody)
@@ -116,7 +116,7 @@ func TestGetTodos(t *testing.T) {
 	TodoWithoutID(res, req)
 
 	t.Run("proper status code and todos", func(t *testing.T) {
-		var resBody []Todo
+		var resBody []map[string]interface{}
 		assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
 		assertStatusCode(t, res.Result().StatusCode, http.StatusOK)
 
@@ -125,8 +125,8 @@ func TestGetTodos(t *testing.T) {
 		}
 
 		for _, v := range resBody {
-			if v.UserID != uid {
-				t.Errorf("todo uid mismatch for this user, expected %v but got %v", uid, v.ID)
+			if v["uid"] != uid {
+				t.Errorf("todo uid mismatch for this user, expected %v but got %v", uid, v["uid"])
 			}
 		}
 	})
@@ -137,25 +137,26 @@ func TestGetTodo(t *testing.T) {
 	defer cleanTestEnvironment()
 
 	// create a todo for current user
-	reqBody := map[string]interface{}{
+	reqBody := map[string]string{
 		"text": "Hello World",
 	}
 	res, _ := CreateTodoReq(reqBody)
-	resBody := Todo{}
+	var resBody map[string]interface{}
 	assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
 
 	t.Run("GET with valid id for current user", func(t *testing.T) {
 		// GET the todo
-		req := httptest.NewRequest("GET", "http://localhost:8080/todos/"+strconv.Itoa(resBody.ID), nil)
+		id := strconv.Itoa(int(resBody["id"].(float64)))
+		req := httptest.NewRequest("GET", "http://localhost:8080/todos/"+id, nil)
 		res = httptest.NewRecorder()
 		TodoWithID(res, req)
 		assertStatusCode(t, res.Result().StatusCode, http.StatusOK)
 
 		// Check the result
-		resBody = Todo{}
+		resBody = map[string]interface{}{}
 		assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
 
-		if resBody.Text != reqBody["text"] {
+		if resBody["text"] != reqBody["text"] {
 			t.Errorf("Did not get the requested todo text")
 		}
 	})
@@ -175,8 +176,9 @@ func TestGetTodo(t *testing.T) {
 
 	t.Run("One User is not able to GET todo of others", func(t *testing.T) {
 		// send the request to /todos/todoId
-		testUserAccess(t, func(todo Todo) *httptest.ResponseRecorder {
-			url := "http://localhost:8080/todos/" + strconv.Itoa(todo.ID)
+		testUserAccess(t, func(todo map[string]interface{}) *httptest.ResponseRecorder {
+			id := strconv.Itoa(int(todo["id"].(float64)))
+			url := "http://localhost:8080/todos/" + id
 			req := httptest.NewRequest("GET", url, nil)
 			res := httptest.NewRecorder()
 			TodoWithID(res, req)
@@ -190,29 +192,37 @@ func TestUpdateTodo(t *testing.T) {
 	initTestEnvironment()
 	defer cleanTestEnvironment()
 
-	res, _ := CreateTodoReq(nil)
-	var resBody Todo
-	assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
-	updatedTodo := map[string]interface{}{"text": "yo adnan"}
-	reqJSONBody, _ := json.Marshal(updatedTodo)
-
 	t.Run("valid id", func(t *testing.T) {
+		// create todo
+		res, _ := CreateTodoReq(nil)
+		var resBody map[string]interface{}
+		assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
+		id := strconv.Itoa(int(resBody["id"].(float64)))
+
+		// update todo
+		updatedTodo := map[string]string{"text": "yo adnan"}
+		reqJSONBody, _ := json.Marshal(updatedTodo)
 		res = httptest.NewRecorder()
-		req := httptest.NewRequest("PUT", "http://localhost:8080/todos/"+strconv.Itoa(resBody.ID), bytes.NewReader(reqJSONBody))
+		req := httptest.NewRequest(
+			"PUT",
+			"http://localhost:8080/todos/"+id,
+			bytes.NewReader(reqJSONBody),
+		)
 		TodoWithID(res, req)
+		assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
 
 		t.Run("Proper res code and body with valid ID", func(t *testing.T) {
 			assertStatusCode(t, res.Result().StatusCode, http.StatusOK)
-			assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
 
-			if resBody.Text != updatedTodo["text"] {
+			if resBody["text"] != updatedTodo["text"] {
 				t.Errorf("Did not get the updated text with response")
 			}
 		})
 
 		t.Run("Check if the todo got updated", func(t *testing.T) {
 			var todo Todo
-			db.First(&todo, "id=?", resBody.ID)
+			db.First(&todo, "id=?", id)
+			t.Logf("%#v", todo)
 
 			if todo.Text != updatedTodo["text"] {
 				t.Errorf("Todo did not get updated")
@@ -221,8 +231,15 @@ func TestUpdateTodo(t *testing.T) {
 	})
 
 	t.Run("invalid id", func(t *testing.T) {
-		res = httptest.NewRecorder()
-		req := httptest.NewRequest("PUT", "http://localhost:8080/todos/"+strconv.Itoa(10), bytes.NewReader(reqJSONBody))
+		updatedTodo := map[string]string{"text": "yo adnan"}
+		reqJSONBody, _ := json.Marshal(updatedTodo)
+
+		res := httptest.NewRecorder()
+		req := httptest.NewRequest(
+			"PUT",
+			"http://localhost:8080/todos/"+strconv.Itoa(-1),
+			bytes.NewReader(reqJSONBody),
+		)
 		TodoWithID(res, req)
 
 		assertStatusCode(t, res.Result().StatusCode, http.StatusNotFound)
@@ -235,9 +252,10 @@ func TestUpdateTodo(t *testing.T) {
 	})
 
 	t.Run("one user is not able to update another user's todo", func(t *testing.T) {
-		testUserAccess(t, func(todo Todo) *httptest.ResponseRecorder {
+		testUserAccess(t, func(todo map[string]interface{}) *httptest.ResponseRecorder {
 			// send the request to /todos/todoId
-			url := "http://localhost:8080/todos/" + strconv.Itoa(todo.ID)
+			id := strconv.Itoa(int(todo["id"].(float64)))
+			url := "http://localhost:8080/todos/" + id
 			reqBody := map[string]interface{}{"text": "hello adnan"}
 			encodedReqBody, err := json.Marshal(reqBody)
 			assertTestError(err)
@@ -256,9 +274,9 @@ func TestDeleteTodo(t *testing.T) {
 
 	// create the todo
 	res, _ := CreateTodoReq(nil)
-	var resBody Todo
+	var resBody map[string]interface{}
 	assertRandomErr(t, json.Unmarshal(res.Body.Bytes(), &resBody))
-	todoID := strconv.Itoa(resBody.ID)
+	todoID := strconv.Itoa(int(resBody["id"].(float64)))
 
 	t.Run("valid id", func(t *testing.T) {
 		// delete the todo
@@ -278,7 +296,7 @@ func TestDeleteTodo(t *testing.T) {
 
 		t.Run("check db for todo deletion", func(t *testing.T) {
 			var todo Todo
-			db.First(todo, "id=?", resBody.ID)
+			db.First(todo, "id=?", todoID)
 			if todo.ID != 0 {
 				t.Errorf("Didn't expect todo to exist in the db")
 			}
@@ -300,9 +318,10 @@ func TestDeleteTodo(t *testing.T) {
 	})
 
 	t.Run("one user is not able to delete another user's todo", func(t *testing.T) {
-		testUserAccess(t, func(todo Todo) *httptest.ResponseRecorder {
+		testUserAccess(t, func(todo map[string]interface{}) *httptest.ResponseRecorder {
 			// send the request to /todos/todoId
-			url := "http://localhost:8080/todos/" + strconv.Itoa(todo.ID)
+			id := strconv.Itoa(int(todo["id"].(float64)))
+			url := "http://localhost:8080/todos/" + id
 			req := httptest.NewRequest("DELETE", url, nil)
 			res := httptest.NewRecorder()
 			TodoWithID(res, req)
@@ -315,7 +334,7 @@ func TestDeleteTodo(t *testing.T) {
 // tests whether or not a user has unauthorized access to a route
 // accepts a func f as argument which is expected to make a request to the
 // route that is to be tested and return the response object
-func testUserAccess(t *testing.T, f func(todo Todo) *httptest.ResponseRecorder) {
+func testUserAccess(t *testing.T, f func(todo map[string]interface{}) *httptest.ResponseRecorder) {
 	todo := addRandomUserAndTodo()
 	//defer TestStart(t)
 
@@ -335,7 +354,7 @@ func testUserAccess(t *testing.T, f func(todo Todo) *httptest.ResponseRecorder) 
 
 // create an arbitrary user, create a todo for him, then switch back to previous user
 // returns the todo for the arbitrary user
-func addRandomUserAndTodo() Todo {
+func addRandomUserAndTodo() map[string]interface{} {
 	// arbitrary user
 	user := User{Uname: "test", Pass: "test"}
 	db.Create(&user)
@@ -344,7 +363,7 @@ func addRandomUserAndTodo() Todo {
 	// create todo for that user
 	res, _ := CreateTodoReq(nil)
 	// unmarshall the todo
-	var todo Todo
+	var todo map[string]interface{}
 	err = json.Unmarshal(res.Body.Bytes(), &todo)
 	assertTestError(err)
 	// switch back to our main user
